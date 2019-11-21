@@ -177,17 +177,25 @@ function getCheckedFields(code) {
   var checked = {};
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
-    tmatch = line.match(/^txn\s+(.*)/);
+    var tmatch = line.match(/^txn\s+(.*)/);
     if (tmatch) {
       initOrAppend(checked, tmatch[1], 0);
       continue;
     }
 
-    gtmatch = line.match(/^gtxn\s+(\d+)\s+(.*)/);
+    var gtmatch = line.match(/^gtxn\s+(\d+)\s+(.*)/);
     if (gtmatch) {
       initOrAppend(checked, gtmatch[2], parseInt(gtmatch[1]) + 1);
       continue;
     }
+
+    var globmatch = line.match(/^global\s+(.*)/);
+    if (globmatch) {
+      // -1 indicates that this is not a check associated with a particular txn
+      initOrAppend(checked, globmatch[1], -1);
+      continue;
+    }
+
   }
 
   return checked;
@@ -268,7 +276,9 @@ Graph.prototype.updateCheckedFields = function() {
       // Mark which txns we checked the field for
       Object.keys(checked[key]).sort((x, y)=>(parseInt(x) - parseInt(y))).forEach(function(txidx) {
         var txt;
-        if (txidx == 0) {
+        if (txidx == -1) {
+          return;
+        } else if (txidx == 0) {
           txt = "★";
         } else {
           txt = String(txidx - 1);
