@@ -82,6 +82,7 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
   var block = [];
   var lastLabel = "entry"
   var lines = code.split("\n");
+  var wasReturn = false;
 
   var i = 0;
   for (i = 0; i < lines.length; i++) {
@@ -97,9 +98,18 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
     block.push(line);
 
     // Match branches and labels
-    var bmatch = line.match(/^bnz\s+(.*)/);
+    var bmatch = line.match(/^(?:bn?z?)\s+(.*)/);
     var lmatch = line.match(/(.*):/);
+    var rmatch = line.match(/^return.*/);
+    if (rmatch && !wasReturn) {
+      wasReturn = true;
+      continue;
+    }
     if (bmatch || lmatch) {
+      // remove last line if we seen return and this line is label - dead end
+      if (lmatch && wasReturn) {
+        block.pop();
+      }
       // Create a node named after the most recent label
       var node = new Node(lastLabel, block.join("\n"), i);
       this.nodes[lastLabel] = node;
@@ -115,7 +125,10 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         if (!this.edges[lastLabel]) {
             this.edges[lastLabel] = [];
         }
-        this.edges[lastLabel].push(newLabel);
+        // there was return on previous line then do not create a new edge
+        if (!wasReturn) {
+          this.edges[lastLabel].push(newLabel);
+        }
 
         // Update lastLabel, which names the next block of code
         lastLabel = newLabel;
@@ -134,8 +147,8 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         // Update lastLabel, which names the next block of code
         lastLabel = newLabel;
       }
-      continue;
     }
+    wasReturn = false;
   }
 
   var node = new Node(lastLabel, block.join("\n"), i);
