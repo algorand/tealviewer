@@ -90,6 +90,12 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
     var cs = lines[i].indexOf("//");
     var line = lines[i].substring(0, cs == -1 ? undefined : cs);
 
+    // Strip pragma
+    var pr = line.indexOf("#");
+    if (pr != -1) {
+      line = line.substring(0, pr);
+    }
+
     // Strip trailing whitespace
     line = line.trim();
     if (line === "") {
