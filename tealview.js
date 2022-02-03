@@ -80,9 +80,10 @@ function escapeCode(code) {
 
 Graph.prototype.splitBranchesAndLabels = function(code) {
   var block = [];
-  var lastLabel = "entry"
+  var lastLabel = "entry";
   var lines = code.split("\n");
   var wasReturn = false;
+  var wasBranch = false;
 
   var i = 0;
   for (i = 0; i < lines.length; i++) {
@@ -104,17 +105,30 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
     block.push(line);
 
     // Match branches and labels
-    var bmatch = line.match(/^(?:bn?z?)\s+(.*)/);
-    var lmatch = line.match(/(.*):/);
-    var rmatch = line.match(/^return.*/);
-    if (rmatch && !wasReturn) {
+    var branchMatch = line.match(/^b(?:n?z)\s+(.*)/);
+    var gotoMatch = line.match(/^(?:b)\s+(.*)/);
+    var labelMatch = line.match(/(.*):/);
+    var returnMatch = line.match(/^return.*/);
+    var callsubMatch = line.match(/^callsub\s+(.*)/);
+    var retsubMatch = line.match(/^retsub.*/);
+    if ((returnMatch || retsubMatch) && !wasReturn) {
       wasReturn = true;
       continue;
     }
-    if (bmatch || lmatch) {
+    if (branchMatch || labelMatch || callsubMatch || gotoMatch) {
       // remove last line if we seen return and this line is label - dead end
-      if (lmatch && wasReturn) {
+      if (labelMatch && wasReturn) {
         block.pop();
+      }
+
+      if (labelMatch && wasBranch) {
+        // if there was an unconditional branch and current line is label
+        // then reset the label
+        var newLabel = labelMatch[1];
+        lastLabel = labelMatch[1];
+        wasBranch = false;
+        block.shift()
+        continue;
       }
       // Create a node named after the most recent label
       var node = new Node(lastLabel, block.join("\n"), i);
@@ -124,12 +138,12 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
       // If this was a label, then name the next node
       // after the label. Otherwise, name it after the
       // branch
-      if (lmatch) {
-        var newLabel = lmatch[1];
+      if (labelMatch) {
+        var newLabel = labelMatch[1];
 
         // Add an edge from the old label to the new label
         if (!this.edges[lastLabel]) {
-            this.edges[lastLabel] = [];
+          this.edges[lastLabel] = [];
         }
         // there was return on previous line then do not create a new edge
         if (!wasReturn) {
@@ -138,16 +152,26 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
 
         // Update lastLabel, which names the next block of code
         lastLabel = newLabel;
-      } else if (bmatch) {
+      } else if (gotoMatch) {
+        var newLabel = gotoMatch[1]
+        if (!this.edges[lastLabel]) {
+          this.edges[lastLabel] = [];
+        }
+        // Add an edge from the old to the new destination
+        this.edges[lastLabel].push(newLabel);
+        lastLabel = newLabel;
+        wasBranch = true;
+      } else if (branchMatch || callsubMatch) {
         var newLabel = "fallthru_" + i + "_" + line.replace(/\s/g, "_");
 
+        var edge = branchMatch ? branchMatch[1] : callsubMatch[1]
         // As a branch, we will point to two nodes:
         // the first is the target label of the branch (bnz taken)
         // the second is the subsequent code (bnz not taken)
         if (!this.edges[lastLabel]) {
-            this.edges[lastLabel] = [];
+          this.edges[lastLabel] = [];
         }
-        this.edges[lastLabel].push(bmatch[1]);
+        this.edges[lastLabel].push(edge);
         this.edges[lastLabel].push(newLabel);
 
         // Update lastLabel, which names the next block of code
