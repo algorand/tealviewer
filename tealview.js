@@ -83,7 +83,8 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
   var lastLabel = "entry";
   var lines = code.split("\n");
   var wasReturn = false;
-  var wasBranch = false;
+  var wasGoto = null;
+  var deadCodeCounter = 0
 
   var i = 0;
   for (i = 0; i < lines.length; i++) {
@@ -121,13 +122,30 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         block.pop();
       }
 
-      if (labelMatch && wasBranch) {
+      if (labelMatch && wasGoto) {
         // if there was an unconditional branch and current line is label
         // then reset the label
         var newLabel = labelMatch[1];
         lastLabel = labelMatch[1];
-        wasBranch = false;
-        block.shift()
+        // check of there is some dead code after the unconditional branch
+        // if so then create a appropriate block
+        var deadCodeLines = [];
+        while (!block[0].match(/(.*):/)) {
+          deadCodeLines.push(block[0])
+          block.shift() // consume lines between unconditional brach and the label
+        }
+        if (deadCodeLines && deadCodeLines.length > 0) {
+          var label = "dead_code_" + deadCodeCounter;
+          if (!this.edges[wasGoto]) {
+            this.edges[wasGoto] = [];
+          }
+          this.edges[wasGoto].push(label);
+          var node = new Node(label, deadCodeLines.join("\n"), i);
+          this.nodes[label] = node;
+          deadCodeCounter++;
+        }
+        block.shift()  // consume label line
+        wasGoto = null;
         continue;
       }
       // Create a node named after the most recent label
@@ -159,8 +177,8 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         }
         // Add an edge from the old to the new destination
         this.edges[lastLabel].push(newLabel);
+        wasGoto = lastLabel;
         lastLabel = newLabel;
-        wasBranch = true;
       } else if (branchMatch || callsubMatch) {
         var newLabel = "fallthru_" + i + "_" + line.replace(/\s/g, "_");
 
