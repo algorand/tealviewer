@@ -118,7 +118,8 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
     var returnMatch = line.match(/^return.*/);
     var callsubMatch = line.match(/^callsub\s+(.*)/);
     var retsubMatch = line.match(/^retsub.*/);
-    if ((returnMatch || retsubMatch) && !wasReturn) {
+    var errMatch = line.match(/^err.*/);
+    if ((returnMatch || retsubMatch || errMatch) && !wasReturn) {
       wasReturn = true;
       continue;
     }
