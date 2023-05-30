@@ -55,6 +55,12 @@ Node.prototype.addChild = function(node) {
   this.children.push(node);
 }
 
+function Edge(to, condition, callsub) {
+  this.to = to;
+  this.condition = condition;
+  this.callsub = callsub;
+}
+
 /*
  * </Node>
  */
@@ -67,7 +73,7 @@ function Graph(code) {
   // Map node name -> node
   this.nodes = {};
 
-  // Map node name -> [node names]
+  // Map node name -> [Edge]
   this.edges = {};
 
   // Process branches and labels
@@ -84,7 +90,7 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
   var lines = code.split("\n");
   var wasReturn = false;
   var wasGoto = null;
-  var deadCodeCounter = 0
+  var deadCodeCounter = 0;
 
   var i = 0;
   for (i = 0; i < lines.length; i++) {
@@ -112,7 +118,8 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
     var returnMatch = line.match(/^return.*/);
     var callsubMatch = line.match(/^callsub\s+(.*)/);
     var retsubMatch = line.match(/^retsub.*/);
-    if ((returnMatch || retsubMatch) && !wasReturn) {
+    var errMatch = line.match(/^err.*/);
+    if ((returnMatch || retsubMatch || errMatch) && !wasReturn) {
       wasReturn = true;
       continue;
     }
@@ -139,7 +146,7 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
           if (!this.edges[wasGoto]) {
             this.edges[wasGoto] = [];
           }
-          this.edges[wasGoto].push(label);
+          this.edges[wasGoto].push(new Edge(label, null, false));
           var node = new Node(label, deadCodeLines.join("\n"), i);
           this.nodes[label] = node;
           deadCodeCounter++;
@@ -148,6 +155,12 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         wasGoto = null;
         continue;
       }
+
+      if (branchMatch) {
+        // Removes branch instruction from the block
+        block.pop();
+      }
+
       // Create a node named after the most recent label
       var node = new Node(lastLabel, block.join("\n"), i);
       this.nodes[lastLabel] = node;
@@ -165,7 +178,7 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         }
         // there was return on previous line then do not create a new edge
         if (!wasReturn) {
-          this.edges[lastLabel].push(newLabel);
+          this.edges[lastLabel].push(new Edge(newLabel, null, false));
         }
 
         // Update lastLabel, which names the next block of code
@@ -176,7 +189,7 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
           this.edges[lastLabel] = [];
         }
         // Add an edge from the old to the new destination
-        this.edges[lastLabel].push(newLabel);
+        this.edges[lastLabel].push(new Edge(newLabel, null, false));
         wasGoto = lastLabel;
         lastLabel = newLabel;
       } else if (branchMatch || callsubMatch) {
@@ -189,8 +202,19 @@ Graph.prototype.splitBranchesAndLabels = function(code) {
         if (!this.edges[lastLabel]) {
           this.edges[lastLabel] = [];
         }
-        this.edges[lastLabel].push(edge);
-        this.edges[lastLabel].push(newLabel);
+        const isCallsub = !!callsubMatch;
+        let targetCondition = null;
+        let fallthroughCondition = null;
+        if (branchMatch) {
+          if (branchMatch[0].startsWith("bz")) {
+            targetCondition = false;
+          } else {
+            targetCondition = true;
+          }
+          fallthroughCondition = !targetCondition;
+        }
+        this.edges[lastLabel].push(new Edge(edge, targetCondition, isCallsub));
+        this.edges[lastLabel].push(new Edge(newLabel, fallthroughCondition, false));
 
         // Update lastLabel, which names the next block of code
         lastLabel = newLabel;
@@ -218,11 +242,47 @@ Graph.prototype.generateNoml = function() {
     var edges = self.edges[key];
     for (var i = 0; i < edges.length; i++) {
       var edge = ""
-      edge += "[" + key + "]->[" + edges[i] + "]";
+      edge += "[" + key + "]->[" + edges[i].to + "]";
       lines.push(edge);
     }
   });
 
+  return lines.join("\n")
+}
+
+Graph.prototype.generateDot = function() {
+  var lines = [
+    "digraph {",
+    "node [shape=box]",
+  ];
+  var self = this;
+
+  // Add code sections
+  Object.keys(self.nodes).forEach(function(key) {
+    const node = self.nodes[key];
+    let code = node.code.replaceAll("\n", "\\n");
+    if (!node.name.startsWith("fallthru_")) {
+      code = node.name + ":\\n" + code;
+    }
+    lines.push(key + " [label=\"" + code + "\"]");
+  });
+
+  Object.keys(self.edges).forEach(function(key) {
+    var edges = self.edges[key];
+    for (var i = 0; i < edges.length; i++) {
+      var edge = ""
+      edge += key + " -> " + edges[i].to;
+      if (edges[i].condition != null) {
+        edge += " [label=\"" + edges[i].condition + "\"]";
+      }
+      if (edges[i].callsub) {
+        edge += " [dir=both]"
+      }
+      lines.push(edge);
+    }
+  });
+
+  lines.push("}");
   return lines.join("\n")
 }
 
@@ -374,6 +434,7 @@ Graph.prototype.handleClicks = function() {
 
 function draw() {
   var g = new Graph(txt.value);
+  console.log(g.generateDot());
   var svg = nomnoml.renderSvg(g.generateNoml());
   graphWrapper.innerHTML = svg;
 
