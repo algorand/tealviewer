@@ -433,7 +433,7 @@ Graph.prototype.handleClicks = function() {
 
 function draw() {
   var g = new Graph(txt.value);
-  console.log('DOT graph\n', g.generateDot());
+  console.log(g.generateDot());
   var svg = nomnoml.renderSvg(g.generateNoml());
   graphWrapper.innerHTML = svg;
 
